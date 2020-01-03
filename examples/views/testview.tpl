@@ -1,1 +1,0 @@
-This is a test view [{{.fld1}}] is the data
