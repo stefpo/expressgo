@@ -6,9 +6,10 @@ import (
 	"path"
 )
 
+// GoViewEngine is the middleware function generator for the GO native view engine base on html/template package
 func GoViewEngine(viewdir string) ViewEngine {
 	vd := viewdir
-	return func(templateFile string, data ViewData, resp *Response) {
+	return func(templateFile string, data ViewData, resp *HTTPResponse) {
 		writer := bytes.NewBufferString("")
 		t, err := template.ParseFiles(path.Join(vd, templateFile))
 		if err != nil {

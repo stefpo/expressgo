@@ -29,15 +29,17 @@ func contentType(ext string) string {
 	return "text/html"
 }
 
-type StaticConfig struct {
+// StaticServerConfig structure contains the static file server configuration
+type StaticServerConfig struct {
 	Root        string
 	DefaultPage string
 }
 
-func Static(config StaticConfig) func(req *Request, resp *Response) Status {
+// Static is the middelware function generator for static file server middleware
+func Static(config StaticServerConfig) func(req *HTTPRequest, resp *HTTPResponse) HTTPStatus {
 	var wwwroot = config.Root
 	var defaultPage = config.DefaultPage
-	return func(req *Request, resp *Response) Status {
+	return func(req *HTTPRequest, resp *HTTPResponse) HTTPStatus {
 		if !resp.Complete {
 			bufflen := int64(1024 * 32)
 
@@ -52,11 +54,11 @@ func Static(config StaticConfig) func(req *Request, resp *Response) Status {
 				if !os.IsNotExist(err) {
 					panic(err)
 				} else {
-					return (Status{StatusCode: 404, Description: "File not found", Details: "File not found:" + fn})
+					return (HTTPStatus{StatusCode: 404, Description: "File not found", Details: "File not found:" + fn})
 				}
 			} else {
 				if stat.IsDir() {
-					return (Status{StatusCode: 403, Description: "Forbidden", Details: "Directory listing not allowed"})
+					return (HTTPStatus{StatusCode: 403, Description: "Forbidden", Details: "Directory listing not allowed"})
 				}
 			}
 

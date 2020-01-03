@@ -6,86 +6,106 @@ import (
 	"net/http"
 )
 
+// Vars is the map structure to store request and response variables
 type Vars map[string]interface{}
 
-type Status struct {
+// HTTPStatus structure describes the HTTP response status
+type HTTPStatus struct {
 	StatusCode  int
 	Description string
 	Details     string
 }
 
+// ViewData is the data structure for passing data to a view
 type ViewData map[string]string
-type ViewEngine func(templateFile string, data ViewData, resp *Response)
 
-type Request struct {
+// ViewEngine is function prototype for the view rendering function
+type ViewEngine func(templateFile string, data ViewData, resp *HTTPResponse)
+
+// HTTPRequest wraps the underlying http.Request object and add a flexible data structure
+// for middelware function to enrich it
+type HTTPRequest struct {
 	*http.Request
 	Vars
 }
 
-func (req *Request) Path() string {
+// Path returns the path of the current request
+func (req *HTTPRequest) Path() string {
 	return req.Request.URL.Path
 }
 
-func (req *Request) Method() string {
+// Method returns the HTTP method of the current request
+func (req *HTTPRequest) Method() string {
 	return req.Request.Method
 }
 
-type Response struct {
+// HTTPResponse wraps the underlying http.ResponseWriter and add a flexible data structure
+// for middelware function to enrich it
+// It also provides additional capabilities to manage the output
+type HTTPResponse struct {
 	http.ResponseWriter
 	Vars
-	Status
+	HTTPStatus
 	HeadersSent bool
 	Complete    bool
 	viewEngine  ViewEngine
 }
 
-func (this *Response) Render(s string, data ViewData) {
-	if this.viewEngine != nil {
-		this.viewEngine(s, data, this)
+// Render uses the define View engine to render data using the templateFile
+func (resp *HTTPResponse) Render(templateFile string, data ViewData) {
+	if resp.viewEngine != nil {
+		resp.viewEngine(templateFile, data, resp)
 	}
 }
 
-func (this *Response) End(s string) {
-	this.HeadersSent = true
-	this.Write(s)
-	this.Complete = true
+// End terminates the response No data will be send after that
+func (resp *HTTPResponse) End(s string) {
+	resp.HeadersSent = true
+	resp.Write(s)
+	resp.Complete = true
 
 }
 
-func (this *Response) Write(s string) {
-	if !this.Complete {
-		this.HeadersSent = true
-		this.ResponseWriter.Write([]byte(s))
+// Write sends a string to the HTTP output
+func (resp *HTTPResponse) Write(s string) {
+	if !resp.Complete {
+		resp.HeadersSent = true
+		resp.ResponseWriter.Write([]byte(s))
 	}
 }
 
-func (this *Response) WriteBinary(d []byte) {
-	if !this.Complete {
-		this.HeadersSent = true
-		this.ResponseWriter.Write(d)
+// WriteBinary sends an slice of bytes to the HTTP output
+func (resp *HTTPResponse) WriteBinary(d []byte) {
+	if !resp.Complete {
+		resp.HeadersSent = true
+		resp.ResponseWriter.Write(d)
 	}
 }
 
-func (this *Response) AddHeader(name string, value string) {
-	this.ResponseWriter.Header().Add(name, value)
+// AddHeader adds a header to the HTTP output
+func (resp *HTTPResponse) AddHeader(name string, value string) {
+	resp.ResponseWriter.Header().Add(name, value)
 }
 
-func (this *Response) SetCookie(name string, cookie http.Cookie) {
-	this.AddHeader("Set-cookie", cookie.String())
+// SetCookie adds a cookier to the HTTP output
+func (resp *HTTPResponse) SetCookie(name string, cookie http.Cookie) {
+	resp.AddHeader("Set-cookie", cookie.String())
 }
 
-func (this *Response) OK() Status {
-	return Status{
+// OK returns a 200 Success HTTP Status
+func (resp *HTTPResponse) OK() HTTPStatus {
+	return HTTPStatus{
 		StatusCode:  200,
-		Description: "OK"}
+		Description: "Success"}
 }
 
+// Middleware structure routing and handler information of a middleware used.
 type Middleware struct {
 	Path    string
-	Handler func(*Request, *Response) Status
+	Handler func(*HTTPRequest, *HTTPResponse) HTTPStatus
 }
 
-// App the is main application object
+// App the is main application description object
 type App struct {
 	Name         string
 	Middleware   []Middleware
@@ -94,7 +114,7 @@ type App struct {
 	ErrorHandler Middleware
 }
 
-// Express create a new instance of an application
+// Express creates a new instance of an application
 func Express() App {
 	return App{
 		Name:         "Basic application",
@@ -103,20 +123,22 @@ func Express() App {
 		ErrorHandler: Middleware{Path: "", Handler: defaultErrorPage}}
 }
 
-func (this *App) SetViewEngine(ve ViewEngine) *App {
-	this.ViewEngine = ve
-	return this
+// SetViewEngine sets the view engine for the application
+func (thisApp *App) SetViewEngine(ve ViewEngine) *App {
+	thisApp.ViewEngine = ve
+	return thisApp
 }
 
-func (this *App) Use(p ...interface{}) *App {
+// Use adds middleware to the application stack
+func (thisApp *App) Use(p ...interface{}) *App {
 	if len(p) == 1 {
 		switch p[0].(type) {
-		case (func(*Request, *Response) Status):
-			mw := p[0].(func(*Request, *Response) Status)
-			if this.Middleware == nil {
-				this.Middleware = make([]Middleware, 0)
+		case (func(*HTTPRequest, *HTTPResponse) HTTPStatus):
+			mw := p[0].(func(*HTTPRequest, *HTTPResponse) HTTPStatus)
+			if thisApp.Middleware == nil {
+				thisApp.Middleware = make([]Middleware, 0)
 			}
-			this.Middleware = append(this.Middleware, Middleware{Path: "", Handler: mw})
+			thisApp.Middleware = append(thisApp.Middleware, Middleware{Path: "", Handler: mw})
 		default:
 			panic("Use: Invalid type for P1 in Use. Expected func(*Request, *Response) Status")
 
@@ -125,12 +147,12 @@ func (this *App) Use(p ...interface{}) *App {
 		switch p[0].(type) {
 		case string:
 			switch p[1].(type) {
-			case (func(*Request, *Response) Status):
-				mw := p[1].(func(*Request, *Response) Status)
-				if this.Middleware == nil {
-					this.Middleware = make([]Middleware, 0)
+			case (func(*HTTPRequest, *HTTPResponse) HTTPStatus):
+				mw := p[1].(func(*HTTPRequest, *HTTPResponse) HTTPStatus)
+				if thisApp.Middleware == nil {
+					thisApp.Middleware = make([]Middleware, 0)
 				}
-				this.Middleware = append(this.Middleware, Middleware{Path: p[0].(string), Handler: mw})
+				thisApp.Middleware = append(thisApp.Middleware, Middleware{Path: p[0].(string), Handler: mw})
 			default:
 				panic("Use: Invalid type for P2 in Use")
 			}
@@ -138,26 +160,23 @@ func (this *App) Use(p ...interface{}) *App {
 			panic("Use: Invalid type for P1 in Use. Expected string")
 		}
 	}
-	return this
-}
-
-func (this *App) About() string {
-	return fmt.Sprintf("%d", len(this.Middleware))
+	return thisApp
 }
 
 type mainHandler struct {
 	App *App
 }
 
-func (this mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	req := Request{
+// ServeHTTP is the web server main handler function.
+func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	req := HTTPRequest{
 		Request: r,
 		Vars:    make(map[string]interface{})}
-	resp := Response{
+	resp := HTTPResponse{
 		ResponseWriter: w,
 		Vars:           make(map[string]interface{}),
-		viewEngine:     this.App.ViewEngine,
-		Status: Status{
+		viewEngine:     hdlr.App.ViewEngine,
+		HTTPStatus: HTTPStatus{
 			StatusCode:  200,
 			Description: "OK"}}
 
@@ -171,47 +190,50 @@ func (this mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				em = e.(string)
 			}
 
-			if resp.Status.StatusCode == 200 {
-				resp.Status = Status{
+			if resp.HTTPStatus.StatusCode == 200 {
+				resp.HTTPStatus = HTTPStatus{
 					StatusCode:  500,
 					Description: "Unhandled exception",
 					Details:     em}
 			}
 		}
 
-		if resp.Status.StatusCode != 200 {
-			this.App.ErrorHandler.Handler(&req, &resp)
+		if resp.HTTPStatus.StatusCode != 200 {
+			hdlr.App.ErrorHandler.Handler(&req, &resp)
 		}
 	}()
 
-	for i := 0; i < len(this.App.Middleware); i++ {
-		if this.App.Middleware[i].Path == "" || this.App.Middleware[i].Path == req.Path() {
-			status := this.App.Middleware[i].Handler(&req, &resp)
+	for i := 0; i < len(hdlr.App.Middleware); i++ {
+		if hdlr.App.Middleware[i].Path == "" || hdlr.App.Middleware[i].Path == req.Path() {
+			status := hdlr.App.Middleware[i].Handler(&req, &resp)
 			if status.StatusCode != 200 {
-				resp.Status = status
+				resp.HTTPStatus = status
 				break
 			}
 		}
 	}
 }
 
-func (this *App) Listen(port string) {
+// Listen starts the web server of the application
+func (thisApp *App) Listen(port string) {
 	h := mainHandler{
-		App: this}
+		App: thisApp}
 
 	if err := http.ListenAndServe(port, h); err != nil {
 		fmt.Println(err.Error())
 	}
 }
 
-func defaultErrorPage(req *Request, resp *Response) Status {
-	resp.Write(fmt.Sprintf("<h1>%d %s</h1>", resp.Status.StatusCode, resp.Status.Description))
-	resp.Write(resp.Status.Details)
+func defaultErrorPage(req *HTTPRequest, resp *HTTPResponse) HTTPStatus {
+	resp.Write(fmt.Sprintf("<h1>%d %s</h1>", resp.HTTPStatus.StatusCode, resp.HTTPStatus.Description))
+	resp.Write(resp.HTTPStatus.Details)
 	return resp.OK()
 }
 
+// DebugMode Sets the debugging messages on/off for the server
 var DebugMode = false
 
+// LogDebug writes debug messages if debugmode is on
 func LogDebug(s string) {
 	if DebugMode {
 		log.Println("Debug: " + s)

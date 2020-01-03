@@ -1,19 +1,3 @@
-/* *************************************************************
-http extensions for Go web server
-
-This package contains extensions to facilitate the use of
-GO http server:
-
-- A wrapper for for the ResponseWriter.
-- A session manager.
-************************************************************** */
-
-// The httpext package contains utilities to facilitate
-// the development of web application.
-// - A session manager
-// - An object to encapsulate all the HTTP Context
-// - An easier prototype for handler functions
-
 package expressgo
 
 import (
@@ -24,33 +8,28 @@ import (
 	"time"
 )
 
-// Default session timeout (May be overwritten individually for each session)
-//var SessionTimeout int = 600
-
-// Frequency at which the session store removes expired sessions
-//var CleanupFrequency int = 60
-var serverSessions map[string]*HttpSession
+var serverSessions map[string]*HTTPSession
 var sessionIndex int
 var sessionCleanerKeepActive = true
 var sessionStoreLock sync.Mutex
 
-// The session object
-type HttpSession struct {
-	Id      string
+// HTTPSession structure contains the session data and control information
+type HTTPSession struct {
+	ID      string
 	LastUse time.Time
 	Timeout int
 	Values  map[string]string
 }
 
-// Sets a session variable
-func (s *HttpSession) Set(key string, value string) {
+// Set Sets a session string variable
+func (s *HTTPSession) Set(key string, value string) {
 	sessionStoreLock.Lock()
 	s.Values[key] = value
 	sessionStoreLock.Unlock()
 }
 
-// Gets a session variable
-func (s *HttpSession) Get(key string) string {
+// Get Gets a session variable by name. It returns an empty string if the value doesn ot exist
+func (s *HTTPSession) Get(key string) string {
 	sessionStoreLock.Lock()
 	var rv string
 	var found bool
@@ -61,23 +40,23 @@ func (s *HttpSession) Get(key string) string {
 	return rv
 }
 
-// Deletes a session variable
-func (s *HttpSession) Delete(key string) {
+// Delete Deletes a session variable by name.
+func (s *HTTPSession) Delete(key string) {
 	sessionStoreLock.Lock()
 	delete(s.Values, key)
 	sessionStoreLock.Unlock()
 }
 
-// Clears all variables from a session
-func (s *HttpSession) Clear() {
+// Clear removes all variables from current session
+func (s *HTTPSession) Clear() {
 	sessionStoreLock.Lock()
 	s.Values = make(map[string]string)
 	sessionStoreLock.Unlock()
 }
 
-func (s *HttpSession) init(sessionId string) {
+func (s *HTTPSession) init(sessionID string) {
 	s.Timeout = config.Timeout
-	s.Id = sessionId
+	s.ID = sessionID
 	s.Values = make(map[string]string)
 }
 
@@ -97,43 +76,43 @@ func sessionStoreCleaner() {
 	}
 }
 
-func getHttpSession(writer http.ResponseWriter, req *http.Request) *HttpSession {
-	var session *HttpSession
+func getHTTPSession(writer http.ResponseWriter, req *http.Request) *HTTPSession {
+	var session *HTTPSession
 	var found bool
-	var sessionId string
+	var sessionID string
 
 	sessionStoreLock.Lock() // Prevent unikely parallel initialization
 
 	if serverSessions == nil {
 		LogDebug("Init Session Manager")
-		serverSessions = make(map[string]*HttpSession)
+		serverSessions = make(map[string]*HTTPSession)
 		sessionIndex = 12345
 		go sessionStoreCleaner()
 	}
 
 	if c, e := req.Cookie("GOSVR_SessionId"); e == nil {
-		sessionId = c.Value
+		sessionID = c.Value
 	} else {
-		sessionId = ""
+		sessionID = ""
 	}
 
-	LogDebug(fmt.Sprintf("Read session(id:%s)\n", sessionId))
+	LogDebug(fmt.Sprintf("Read session(id:%s)\n", sessionID))
 
-	if session, found = serverSessions[sessionId]; !found || sessionId == "" {
+	if session, found = serverSessions[sessionID]; !found || sessionID == "" {
 		sessionIndex = sessionIndex + 1
 
-		sessionId = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%d%d", sessionIndex, time.Now().UnixNano())))
+		sessionID = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%d%d", sessionIndex, time.Now().UnixNano())))
 
-		LogDebug(fmt.Sprintf("Start new session(id:%s)\n", sessionId))
-		session = new(HttpSession)
-		session.init(sessionId)
-		serverSessions[sessionId] = session
+		LogDebug(fmt.Sprintf("Start new session(id:%s)\n", sessionID))
+		session = new(HTTPSession)
+		session.init(sessionID)
+		serverSessions[sessionID] = session
 	} else {
 		if time.Now().After(session.LastUse.Add(time.Duration(session.Timeout) * time.Second)) {
-			LogDebug(fmt.Sprintf("Session expired. Creating new one(id:%s)\n", sessionId))
-			session = new(HttpSession)
-			session.init(sessionId)
-			serverSessions[sessionId] = session
+			LogDebug(fmt.Sprintf("Session expired. Creating new one(id:%s)\n", sessionID))
+			session = new(HTTPSession)
+			session.init(sessionID)
+			serverSessions[sessionID] = session
 		}
 	}
 
@@ -141,12 +120,13 @@ func getHttpSession(writer http.ResponseWriter, req *http.Request) *HttpSession 
 
 	sessionStoreLock.Unlock()
 
-	c := http.Cookie{Name: "GOSVR_SessionId", Value: sessionId, Path: "/"}
+	c := http.Cookie{Name: "GOSVR_SessionId", Value: sessionID, Path: "/"}
 	writer.Header().Add("Set-cookie", c.String())
 
 	return session
 }
 
+// SessionConfig defines session manager parameters
 type SessionConfig struct {
 	Timeout         int
 	CleanupInterval int
@@ -154,10 +134,11 @@ type SessionConfig struct {
 
 var config SessionConfig
 
-func Session(conf SessionConfig) func(req *Request, resp *Response) Status {
+// Session is the session middleware generator.
+func Session(conf SessionConfig) func(req *HTTPRequest, resp *HTTPResponse) HTTPStatus {
 	config = conf
-	return func(req *Request, resp *Response) Status {
-		req.Vars["x_session"] = getHttpSession(resp.ResponseWriter, req.Request)
+	return func(req *HTTPRequest, resp *HTTPResponse) HTTPStatus {
+		req.Vars["x_session"] = getHTTPSession(resp.ResponseWriter, req.Request)
 		return resp.OK()
 	}
 }

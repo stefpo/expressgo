@@ -17,23 +17,23 @@ func main() {
 	app.Use(expressgo.BasicLogger).
 		SetViewEngine(expressgo.GoViewEngine("views")).
 		Use(expressgo.Session(expressgo.SessionConfig{Timeout: 10, CleanupInterval: 60})).
-		Use(expressgo.UrlEncoded).
+		Use(expressgo.URLEncoded).
 		Use("/simplePage", simpleHeader).
 		Use("/simplePage", simplePage).
 		Use("/view", viewtest).
-		Use(expressgo.Static(expressgo.StaticConfig{Root: curdir + "/public", DefaultPage: "index.html"}))
+		Use(expressgo.Static(expressgo.StaticServerConfig{Root: curdir + "/public", DefaultPage: "index.html"}))
 
 	app.Listen("localhost:8080")
 }
 
-func viewtest(req *expressgo.Request, resp *expressgo.Response) expressgo.Status {
+func viewtest(req *expressgo.HTTPRequest, resp *expressgo.HTTPResponse) expressgo.HTTPStatus {
 	resp.Render("testview.tpl", expressgo.ViewData{"fld1": "Value 1"})
 	return resp.OK()
 }
 
-func simpleHeader(req *expressgo.Request, resp *expressgo.Response) expressgo.Status {
+func simpleHeader(req *expressgo.HTTPRequest, resp *expressgo.HTTPResponse) expressgo.HTTPStatus {
 	//panic("An error occured")
-	session, _ := req.Vars["x_session"].(*expressgo.HttpSession)
+	session, _ := req.Vars["x_session"].(*expressgo.HTTPSession)
 	cnt := session.Get("hitcount")
 	if cnt == "" {
 		cnt = "0"
@@ -42,12 +42,12 @@ func simpleHeader(req *expressgo.Request, resp *expressgo.Response) expressgo.St
 	session.Set("hitcount", cnt)
 
 	resp.Write("<h1>A Header</h1>")
-	resp.Write("<p>HitCount: " + cnt + " id:" + session.Id + " </p>")
+	resp.Write("<p>HitCount: " + cnt + " id:" + session.ID + " </p>")
 	return resp.OK()
 
 }
 
-func simplePage(req *expressgo.Request, resp *expressgo.Response) expressgo.Status {
+func simplePage(req *expressgo.HTTPRequest, resp *expressgo.HTTPResponse) expressgo.HTTPStatus {
 	resp.Write("<p>Hello world ! </p>")
 	if req.Method() == "POST" {
 		for k, v := range req.Form {
