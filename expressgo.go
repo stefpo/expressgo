@@ -95,7 +95,7 @@ func (resp *HTTPResponse) SetCookie(name string, cookie http.Cookie) {
 // OK returns a 200 Success HTTP Status
 func (resp *HTTPResponse) OK() HTTPStatus {
 	return HTTPStatus{
-		StatusCode:  200,
+		StatusCode:  http.StatusOK,
 		Description: "Success"}
 }
 
@@ -177,7 +177,7 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Vars:           make(map[string]interface{}),
 		viewEngine:     hdlr.App.ViewEngine,
 		HTTPStatus: HTTPStatus{
-			StatusCode:  200,
+			StatusCode:  http.StatusOK,
 			Description: "OK"}}
 
 	defer func() {
@@ -190,15 +190,15 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				em = e.(string)
 			}
 
-			if resp.HTTPStatus.StatusCode == 200 {
+			if resp.HTTPStatus.StatusCode == http.StatusOK {
 				resp.HTTPStatus = HTTPStatus{
-					StatusCode:  500,
+					StatusCode:  http.StatusInternalServerError,
 					Description: "Unhandled exception",
 					Details:     em}
 			}
 		}
 
-		if resp.HTTPStatus.StatusCode != 200 {
+		if resp.HTTPStatus.StatusCode != http.StatusOK {
 			hdlr.App.ErrorHandler.Handler(&req, &resp)
 		}
 	}()
@@ -206,7 +206,7 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < len(hdlr.App.Middleware); i++ {
 		if hdlr.App.Middleware[i].Path == "" || hdlr.App.Middleware[i].Path == req.Path() {
 			status := hdlr.App.Middleware[i].Handler(&req, &resp)
-			if status.StatusCode != 200 {
+			if status.StatusCode != http.StatusOK {
 				resp.HTTPStatus = status
 				break
 			}
@@ -225,6 +225,7 @@ func (thisApp *App) Listen(port string) {
 }
 
 func defaultErrorPage(req *HTTPRequest, resp *HTTPResponse) HTTPStatus {
+	resp.ResponseWriter.WriteHeader(resp.HTTPStatus.StatusCode)
 	resp.Write(fmt.Sprintf("<h1>%d %s</h1>", resp.HTTPStatus.StatusCode, resp.HTTPStatus.Description))
 	resp.Write(resp.HTTPStatus.Details)
 	return resp.OK()

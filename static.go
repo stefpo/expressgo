@@ -1,6 +1,7 @@
 package expressgo
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,7 +55,7 @@ func Static(config StaticServerConfig) func(req *HTTPRequest, resp *HTTPResponse
 				if !os.IsNotExist(err) {
 					panic(err)
 				} else {
-					return (HTTPStatus{StatusCode: 404, Description: "File not found", Details: "File not found:" + fn})
+					return (HTTPStatus{StatusCode: http.StatusNotFound, Description: "File not found", Details: "File not found:" + fn})
 				}
 			} else {
 				if stat.IsDir() {
