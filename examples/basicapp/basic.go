@@ -11,19 +11,19 @@ import (
 func main() {
 	curdir, _ := os.Getwd()
 	fmt.Println("expressgo basic example")
-	app := expressgo.Express()
 	expressgo.DebugMode = true
 	fmt.Println(curdir)
-	app.Use(expressgo.BasicLogger).
+
+	expressgo.Express().
+		Use(expressgo.BasicLogger).
 		SetViewEngine(expressgo.GoViewEngine("views")).
-		Use(expressgo.Session(expressgo.SessionConfig{Timeout: 10, CleanupInterval: 60})).
+		Use(expressgo.Session(expressgo.SessionConfig{Timeout: 300, CleanupInterval: 120})).
 		Use(expressgo.URLEncoded).
 		Use("/simplePage", simpleHeader).
 		Use("/simplePage", simplePage).
 		Use("/view", viewtest).
-		Use(expressgo.Static(expressgo.StaticServerConfig{Root: curdir + "/public", DefaultPage: "index.html"}))
-
-	app.Listen("localhost:8080")
+		Use(expressgo.Static(expressgo.StaticServerConfig{Root: curdir + "/public", DefaultPage: "index.html"})).
+		Listen("localhost:8080")
 }
 
 func viewtest(req *expressgo.HTTPRequest, resp *expressgo.HTTPResponse) expressgo.HTTPStatus {

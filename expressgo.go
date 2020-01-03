@@ -115,8 +115,8 @@ type App struct {
 }
 
 // Express creates a new instance of an application
-func Express() App {
-	return App{
+func Express() *App {
+	return &App{
 		Name:         "Basic application",
 		Middleware:   nil,
 		ViewEngine:   nil,
