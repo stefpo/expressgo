@@ -5,7 +5,7 @@ import (
 )
 
 // BasicLogger is a minimal logger middleware
-func BasicLogger(req *HTTPRequest, resp *HTTPResponse) HTTPStatus {
+func BasicLogger(req *HTTPRequest, resp *HTTPResponse, next func(...HTTPStatus)) {
 	log.Printf("%s %s\n", req.Request.Method, req.Request.URL)
-	return resp.OK()
+	next()
 }

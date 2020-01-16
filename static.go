@@ -31,22 +31,35 @@ func contentType(ext string) string {
 }
 
 // StaticServerConfig structure contains the static file server configuration
-type StaticServerConfig struct {
-	Root        string
+type staticServerOptions struct {
 	DefaultPage string
 }
 
+func (o *staticServerOptions) merge(src map[string]interface{}) {
+	setStructFromMap(o, src)
+}
+
 // Static is the middelware function generator for static file server middleware
-func Static(config StaticServerConfig) func(req *HTTPRequest, resp *HTTPResponse) HTTPStatus {
-	var wwwroot = config.Root
-	var defaultPage = config.DefaultPage
-	return func(req *HTTPRequest, resp *HTTPResponse) HTTPStatus {
+func Static(root string, p ...OptionsMap) func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)) {
+	var wwwroot = root
+	options := staticServerOptions{
+		DefaultPage: "index.html"}
+	switch len(p) {
+	case 0:
+		break
+	case 1:
+		options.merge(p[0])
+		break
+	default:
+		panic("Invalid arguments for Static server.")
+	}
+	return func(req *HTTPRequest, resp *HTTPResponse, next func(...HTTPStatus)) {
 		if !resp.Complete {
 			bufflen := int64(1024 * 32)
 
 			fn := wwwroot + req.Request.URL.Path
 			if req.URL.Path == "/" {
-				fn = fn + defaultPage
+				fn = fn + options.DefaultPage
 			}
 			ext := filepath.Ext(fn)
 
@@ -55,11 +68,12 @@ func Static(config StaticServerConfig) func(req *HTTPRequest, resp *HTTPResponse
 				if !os.IsNotExist(err) {
 					panic(err)
 				} else {
-					return (HTTPStatus{StatusCode: http.StatusNotFound, Description: "File not found", Details: "File not found:" + fn})
+					next(HTTPStatus{StatusCode: http.StatusNotFound, Details: "File not found:" + fn})
+
 				}
 			} else {
 				if stat.IsDir() {
-					return (HTTPStatus{StatusCode: 403, Description: "Forbidden", Details: "Directory listing not allowed"})
+					next(HTTPStatus{StatusCode: http.StatusForbidden, Details: "Directory listing not allowed:" + fn})
 				}
 			}
 
@@ -91,6 +105,6 @@ func Static(config StaticServerConfig) func(req *HTTPRequest, resp *HTTPResponse
 			}
 			resp.End("")
 		}
-		return resp.OK()
+		next()
 	}
 }

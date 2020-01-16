@@ -120,7 +120,7 @@ func getHTTPSession(writer http.ResponseWriter, req *http.Request) *HTTPSession 
 
 	sessionStoreLock.Unlock()
 
-	c := http.Cookie{Name: "GOSVR_SessionId", Value: sessionID, Path: "/"}
+	c := http.Cookie{Name: "XprGo-Session-Id", Value: sessionID, Path: "/"}
 	writer.Header().Add("Set-cookie", c.String())
 
 	return session
@@ -135,10 +135,10 @@ type SessionConfig struct {
 var config SessionConfig
 
 // Session is the session middleware generator.
-func Session(conf SessionConfig) func(req *HTTPRequest, resp *HTTPResponse) HTTPStatus {
+func Session(conf SessionConfig) func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)) {
 	config = conf
-	return func(req *HTTPRequest, resp *HTTPResponse) HTTPStatus {
+	return func(req *HTTPRequest, resp *HTTPResponse, next func(...HTTPStatus)) {
 		req.Vars["x_session"] = getHTTPSession(resp.ResponseWriter, req.Request)
-		return resp.OK()
+		next()
 	}
 }

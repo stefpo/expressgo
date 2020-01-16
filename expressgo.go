@@ -4,20 +4,36 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"reflect"
+	"strings"
 )
 
 // Vars is the map structure to store request and response variables
 type Vars map[string]interface{}
 
-// HTTPStatus structure describes the HTTP response status
 type HTTPStatus struct {
-	StatusCode  int
-	Description string
-	Details     string
+	StatusCode int
+	Details    string
 }
 
 // ViewData is the data structure for passing data to a view
 type ViewData map[string]string
+type OptionsMap map[string]interface{}
+
+func (dest OptionsMap) merge(src OptionsMap, item string) error {
+	for k, v := range src {
+		if x, ok := dest[k]; ok {
+			if reflect.TypeOf(v) == reflect.TypeOf(x) {
+				dest[k] = v
+			} else {
+				return fmt.Errorf("Invalid type for %s '%s'", item, k)
+			}
+		} else {
+			return fmt.Errorf("Invalid %s '%s'", item, k)
+		}
+	}
+	return nil
+}
 
 // ViewEngine is function prototype for the view rendering function
 type ViewEngine func(templateFile string, data ViewData, resp *HTTPResponse)
@@ -26,6 +42,7 @@ type ViewEngine func(templateFile string, data ViewData, resp *HTTPResponse)
 // for middelware function to enrich it
 type HTTPRequest struct {
 	*http.Request
+	RootURL string
 	Vars
 }
 
@@ -44,8 +61,8 @@ func (req *HTTPRequest) Method() string {
 // It also provides additional capabilities to manage the output
 type HTTPResponse struct {
 	http.ResponseWriter
-	Vars
 	HTTPStatus
+	Vars
 	HeadersSent bool
 	Complete    bool
 	viewEngine  ViewEngine
@@ -92,17 +109,10 @@ func (resp *HTTPResponse) SetCookie(name string, cookie http.Cookie) {
 	resp.AddHeader("Set-cookie", cookie.String())
 }
 
-// OK returns a 200 Success HTTP Status
-func (resp *HTTPResponse) OK() HTTPStatus {
-	return HTTPStatus{
-		StatusCode:  http.StatusOK,
-		Description: "Success"}
-}
-
 // Middleware structure routing and handler information of a middleware used.
 type Middleware struct {
 	Path    string
-	Handler func(*HTTPRequest, *HTTPResponse) HTTPStatus
+	Handler interface{}
 }
 
 // App the is main application description object
@@ -111,6 +121,7 @@ type App struct {
 	Middleware   []Middleware
 	ViewEngine   ViewEngine
 	Route        map[string]Middleware
+	XPoweredBy   string
 	ErrorHandler Middleware
 }
 
@@ -120,6 +131,7 @@ func Express() *App {
 		Name:         "Basic application",
 		Middleware:   nil,
 		ViewEngine:   nil,
+		XPoweredBy:   "ExpressGo application server",
 		ErrorHandler: Middleware{Path: "", Handler: defaultErrorPage}}
 }
 
@@ -133,8 +145,8 @@ func (thisApp *App) SetViewEngine(ve ViewEngine) *App {
 func (thisApp *App) Use(p ...interface{}) *App {
 	if len(p) == 1 {
 		switch p[0].(type) {
-		case (func(*HTTPRequest, *HTTPResponse) HTTPStatus):
-			mw := p[0].(func(*HTTPRequest, *HTTPResponse) HTTPStatus)
+		case (func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus))):
+			mw := p[0].(func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)))
 			if thisApp.Middleware == nil {
 				thisApp.Middleware = make([]Middleware, 0)
 			}
@@ -147,8 +159,14 @@ func (thisApp *App) Use(p ...interface{}) *App {
 		switch p[0].(type) {
 		case string:
 			switch p[1].(type) {
-			case (func(*HTTPRequest, *HTTPResponse) HTTPStatus):
-				mw := p[1].(func(*HTTPRequest, *HTTPResponse) HTTPStatus)
+			case (func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus))):
+				mw := p[1].(func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)))
+				if thisApp.Middleware == nil {
+					thisApp.Middleware = make([]Middleware, 0)
+				}
+				thisApp.Middleware = append(thisApp.Middleware, Middleware{Path: p[0].(string), Handler: mw})
+			case *RouterT:
+				mw := p[1].(*RouterT)
 				if thisApp.Middleware == nil {
 					thisApp.Middleware = make([]Middleware, 0)
 				}
@@ -176,13 +194,13 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ResponseWriter: w,
 		Vars:           make(map[string]interface{}),
 		viewEngine:     hdlr.App.ViewEngine,
-		HTTPStatus: HTTPStatus{
-			StatusCode:  http.StatusOK,
-			Description: "OK"}}
+		HTTPStatus:     HTTPStatus{StatusCode: http.StatusOK, Details: ""}}
+
+	resp.AddHeader("X-Powered-By", hdlr.App.XPoweredBy)
 
 	defer func() {
 		if e := recover(); e != nil {
-			em := "Unrecognized error type"
+			em := "Unhandled exception"
 			switch e.(type) {
 			case error:
 				em = e.(error).Error()
@@ -190,27 +208,62 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				em = e.(string)
 			}
 
-			if resp.HTTPStatus.StatusCode == http.StatusOK {
-				resp.HTTPStatus = HTTPStatus{
-					StatusCode:  http.StatusInternalServerError,
-					Description: "Unhandled exception",
-					Details:     em}
+			if resp.HTTPStatus.StatusCode == 200 {
+				resp.HTTPStatus = HTTPStatus{StatusCode: http.StatusInternalServerError, Details: em}
 			}
+
 		}
 
-		if resp.HTTPStatus.StatusCode != http.StatusOK {
-			hdlr.App.ErrorHandler.Handler(&req, &resp)
+		if resp.HTTPStatus.StatusCode != 200 {
+			hdlr.App.ErrorHandler.Handler.(func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)))(&req, &resp, func(...HTTPStatus) {})
 		}
 	}()
 
 	for i := 0; i < len(hdlr.App.Middleware); i++ {
-		if hdlr.App.Middleware[i].Path == "" || hdlr.App.Middleware[i].Path == req.Path() {
-			status := hdlr.App.Middleware[i].Handler(&req, &resp)
-			if status.StatusCode != http.StatusOK {
-				resp.HTTPStatus = status
+		middlewareIsEndpoint := true
+		middlewareCalled := false
+
+		next := func(p ...HTTPStatus) {
+			middlewareIsEndpoint = false
+			switch len(p) {
+			case 0:
+				break
+			case 1:
+				if resp.HTTPStatus.StatusCode == 200 {
+					resp.HTTPStatus = p[0]
+				}
+				break
+			default:
+				panic("next(): extra parameter")
+			}
+		}
+
+		switch hdlr.App.Middleware[i].Handler.(type) {
+		case func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)):
+			if hdlr.App.Middleware[i].Path == "" ||
+				hdlr.App.Middleware[i].Path == req.Path() ||
+				strings.HasPrefix(req.Path(), hdlr.App.Middleware[i].Path+"/") {
+				middlewareCalled = true
+				hdlr.App.Middleware[i].Handler.(func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)))(&req, &resp, next)
+			}
+			break
+
+		case *RouterT:
+			req.RootURL = hdlr.App.Middleware[i].Path
+			rt := hdlr.App.Middleware[i].Handler.(*RouterT)
+			middlewareCalled = true
+			rt.handle(&req, &resp, next)
+			break
+		default:
+			resp.HTTPStatus = HTTPStatus{StatusCode: http.StatusNotImplemented, Details: "No handler for type"}
+		}
+		LogDebug(req.Path() + " " + hdlr.App.Middleware[i].Path + " " + fmt.Sprintf("%d", i))
+		if middlewareCalled {
+			if resp.HTTPStatus.StatusCode != 200 || middlewareIsEndpoint {
 				break
 			}
 		}
+
 	}
 }
 
@@ -224,11 +277,11 @@ func (thisApp *App) Listen(port string) {
 	}
 }
 
-func defaultErrorPage(req *HTTPRequest, resp *HTTPResponse) HTTPStatus {
+func defaultErrorPage(req *HTTPRequest, resp *HTTPResponse, next func(...HTTPStatus)) {
 	resp.ResponseWriter.WriteHeader(resp.HTTPStatus.StatusCode)
-	resp.Write(fmt.Sprintf("<h1>%d %s</h1>", resp.HTTPStatus.StatusCode, resp.HTTPStatus.Description))
+	resp.Write(fmt.Sprintf("<h1>%d %s</h1>", resp.HTTPStatus.StatusCode, http.StatusText(resp.HTTPStatus.StatusCode)))
 	resp.Write(resp.HTTPStatus.Details)
-	return resp.OK()
+	next()
 }
 
 // DebugMode Sets the debugging messages on/off for the server
