@@ -40,7 +40,7 @@ func (o *staticServerOptions) merge(src map[string]interface{}) {
 }
 
 // Static is the middelware function generator for static file server middleware
-func Static(root string, p ...OptionsMap) func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)) {
+func Static(root string, p ...OptionsMap) func(*Request, *Response, func(...Error)) {
 	var wwwroot = root
 	options := staticServerOptions{
 		DefaultPage: "index.html"}
@@ -53,8 +53,8 @@ func Static(root string, p ...OptionsMap) func(*HTTPRequest, *HTTPResponse, func
 	default:
 		panic("Invalid arguments for Static server.")
 	}
-	return func(req *HTTPRequest, resp *HTTPResponse, next func(...HTTPStatus)) {
-		if !resp.Complete {
+	return func(req *Request, resp *Response, next func(...Error)) {
+		if !resp.isComplete {
 			bufflen := int64(1024 * 32)
 
 			fn := wwwroot + req.Request.URL.Path
@@ -68,12 +68,12 @@ func Static(root string, p ...OptionsMap) func(*HTTPRequest, *HTTPResponse, func
 				if !os.IsNotExist(err) {
 					panic(err)
 				} else {
-					next(HTTPStatus{StatusCode: http.StatusNotFound, Details: "File not found:" + fn})
+					next(Error{StatusCode: http.StatusNotFound, Details: "File not found:" + fn})
 
 				}
 			} else {
 				if stat.IsDir() {
-					next(HTTPStatus{StatusCode: http.StatusForbidden, Details: "Directory listing not allowed:" + fn})
+					next(Error{StatusCode: http.StatusForbidden, Details: "Directory listing not allowed:" + fn})
 				}
 			}
 
@@ -86,8 +86,8 @@ func Static(root string, p ...OptionsMap) func(*HTTPRequest, *HTTPResponse, func
 			}
 			buff := make([]byte, bufflen)
 
-			resp.AddHeader("Content-Length", econv.ToString(size))
-			resp.AddHeader("Content-Type", contentType(ext))
+			resp.Set("Content-Length", econv.ToString(size))
+			resp.Set("Content-Type", contentType(ext))
 
 			for {
 				bytesRead, err := f.Read(buff)
@@ -100,8 +100,7 @@ func Static(root string, p ...OptionsMap) func(*HTTPRequest, *HTTPResponse, func
 				if bytesRead == 0 {
 					break
 				}
-				resp.WriteBinary(buff[:bytesRead])
-
+				resp.Send(buff[:bytesRead])
 			}
 			resp.End("")
 		}

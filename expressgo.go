@@ -11,7 +11,7 @@ import (
 // Vars is the map structure to store request and response variables
 type Vars map[string]interface{}
 
-type HTTPStatus struct {
+type Error struct {
 	StatusCode int
 	Details    string
 }
@@ -36,78 +36,7 @@ func (dest OptionsMap) merge(src OptionsMap, item string) error {
 }
 
 // ViewEngine is function prototype for the view rendering function
-type ViewEngine func(templateFile string, data ViewData, resp *HTTPResponse)
-
-// HTTPRequest wraps the underlying http.Request object and add a flexible data structure
-// for middelware function to enrich it
-type HTTPRequest struct {
-	*http.Request
-	RootURL string
-	Vars
-}
-
-// Path returns the path of the current request
-func (req *HTTPRequest) Path() string {
-	return req.Request.URL.Path
-}
-
-// Method returns the HTTP method of the current request
-func (req *HTTPRequest) Method() string {
-	return req.Request.Method
-}
-
-// HTTPResponse wraps the underlying http.ResponseWriter and add a flexible data structure
-// for middelware function to enrich it
-// It also provides additional capabilities to manage the output
-type HTTPResponse struct {
-	http.ResponseWriter
-	HTTPStatus
-	Vars
-	HeadersSent bool
-	Complete    bool
-	viewEngine  ViewEngine
-}
-
-// Render uses the define View engine to render data using the templateFile
-func (resp *HTTPResponse) Render(templateFile string, data ViewData) {
-	if resp.viewEngine != nil {
-		resp.viewEngine(templateFile, data, resp)
-	}
-}
-
-// End terminates the response No data will be send after that
-func (resp *HTTPResponse) End(s string) {
-	resp.HeadersSent = true
-	resp.Write(s)
-	resp.Complete = true
-
-}
-
-// Write sends a string to the HTTP output
-func (resp *HTTPResponse) Write(s string) {
-	if !resp.Complete {
-		resp.HeadersSent = true
-		resp.ResponseWriter.Write([]byte(s))
-	}
-}
-
-// WriteBinary sends an slice of bytes to the HTTP output
-func (resp *HTTPResponse) WriteBinary(d []byte) {
-	if !resp.Complete {
-		resp.HeadersSent = true
-		resp.ResponseWriter.Write(d)
-	}
-}
-
-// AddHeader adds a header to the HTTP output
-func (resp *HTTPResponse) AddHeader(name string, value string) {
-	resp.ResponseWriter.Header().Add(name, value)
-}
-
-// SetCookie adds a cookier to the HTTP output
-func (resp *HTTPResponse) SetCookie(name string, cookie http.Cookie) {
-	resp.AddHeader("Set-cookie", cookie.String())
-}
+type ViewEngine func(templateFile string, data ViewData, resp *Response)
 
 // Middleware structure routing and handler information of a middleware used.
 type Middleware struct {
@@ -115,8 +44,8 @@ type Middleware struct {
 	Handler interface{}
 }
 
-// App the is main application description object
-type App struct {
+// Application the is main application description object
+type Application struct {
 	Name         string
 	Middleware   []Middleware
 	ViewEngine   ViewEngine
@@ -126,8 +55,8 @@ type App struct {
 }
 
 // Express creates a new instance of an application
-func Express() *App {
-	return &App{
+func Express() *Application {
+	return &Application{
 		Name:         "Basic application",
 		Middleware:   nil,
 		ViewEngine:   nil,
@@ -136,17 +65,17 @@ func Express() *App {
 }
 
 // SetViewEngine sets the view engine for the application
-func (thisApp *App) SetViewEngine(ve ViewEngine) *App {
+func (thisApp *Application) SetViewEngine(ve ViewEngine) *Application {
 	thisApp.ViewEngine = ve
 	return thisApp
 }
 
 // Use adds middleware to the application stack
-func (thisApp *App) Use(p ...interface{}) *App {
+func (thisApp *Application) Use(p ...interface{}) *Application {
 	if len(p) == 1 {
 		switch p[0].(type) {
-		case (func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus))):
-			mw := p[0].(func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)))
+		case (func(*Request, *Response, func(...Error))):
+			mw := p[0].(func(*Request, *Response, func(...Error)))
 			if thisApp.Middleware == nil {
 				thisApp.Middleware = make([]Middleware, 0)
 			}
@@ -159,8 +88,8 @@ func (thisApp *App) Use(p ...interface{}) *App {
 		switch p[0].(type) {
 		case string:
 			switch p[1].(type) {
-			case (func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus))):
-				mw := p[1].(func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)))
+			case (func(*Request, *Response, func(...Error))):
+				mw := p[1].(func(*Request, *Response, func(...Error)))
 				if thisApp.Middleware == nil {
 					thisApp.Middleware = make([]Middleware, 0)
 				}
@@ -182,21 +111,24 @@ func (thisApp *App) Use(p ...interface{}) *App {
 }
 
 type mainHandler struct {
-	App *App
+	App *Application
 }
 
 // ServeHTTP is the web server main handler function.
 func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	req := HTTPRequest{
+	req := Request{
 		Request: r,
-		Vars:    make(map[string]interface{})}
-	resp := HTTPResponse{
-		ResponseWriter: w,
-		Vars:           make(map[string]interface{}),
-		viewEngine:     hdlr.App.ViewEngine,
-		HTTPStatus:     HTTPStatus{StatusCode: http.StatusOK, Details: ""}}
+		Vars:    make(map[string]interface{}),
+		App:     hdlr.App}
+	resp := Response{
+		writer:      w,
+		Vars:        make(map[string]interface{}),
+		ContentType: "text/html; charset=\"utf-8\"",
+		viewEngine:  hdlr.App.ViewEngine,
+		Status:      Error{StatusCode: http.StatusOK, Details: ""},
+		App:         hdlr.App}
 
-	resp.AddHeader("X-Powered-By", hdlr.App.XPoweredBy)
+	resp.Set("X-Powered-By", hdlr.App.XPoweredBy)
 
 	defer func() {
 		if e := recover(); e != nil {
@@ -208,14 +140,14 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				em = e.(string)
 			}
 
-			if resp.HTTPStatus.StatusCode == 200 {
-				resp.HTTPStatus = HTTPStatus{StatusCode: http.StatusInternalServerError, Details: em}
+			if resp.Status.StatusCode == 200 {
+				resp.Status = Error{StatusCode: http.StatusInternalServerError, Details: em}
 			}
 
 		}
 
-		if resp.HTTPStatus.StatusCode != 200 {
-			hdlr.App.ErrorHandler.Handler.(func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)))(&req, &resp, func(...HTTPStatus) {})
+		if resp.Status.StatusCode != 200 {
+			hdlr.App.ErrorHandler.Handler.(func(Error, *Request, *Response, func(...Error)))(resp.Status, &req, &resp, func(...Error) {})
 		}
 	}()
 
@@ -223,14 +155,14 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		middlewareIsEndpoint := true
 		middlewareCalled := false
 
-		next := func(p ...HTTPStatus) {
+		next := func(p ...Error) {
 			middlewareIsEndpoint = false
 			switch len(p) {
 			case 0:
 				break
 			case 1:
-				if resp.HTTPStatus.StatusCode == 200 {
-					resp.HTTPStatus = p[0]
+				if resp.Status.StatusCode == 200 {
+					resp.Status = p[0]
 				}
 				break
 			default:
@@ -239,27 +171,27 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		switch hdlr.App.Middleware[i].Handler.(type) {
-		case func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)):
+		case func(*Request, *Response, func(...Error)):
 			if hdlr.App.Middleware[i].Path == "" ||
 				hdlr.App.Middleware[i].Path == req.Path() ||
 				strings.HasPrefix(req.Path(), hdlr.App.Middleware[i].Path+"/") {
 				middlewareCalled = true
-				hdlr.App.Middleware[i].Handler.(func(*HTTPRequest, *HTTPResponse, func(...HTTPStatus)))(&req, &resp, next)
+				hdlr.App.Middleware[i].Handler.(func(*Request, *Response, func(...Error)))(&req, &resp, next)
 			}
 			break
 
 		case *RouterT:
-			req.RootURL = hdlr.App.Middleware[i].Path
+			req.mountPath = hdlr.App.Middleware[i].Path
 			rt := hdlr.App.Middleware[i].Handler.(*RouterT)
 			middlewareCalled = true
 			rt.handle(&req, &resp, next)
 			break
 		default:
-			resp.HTTPStatus = HTTPStatus{StatusCode: http.StatusNotImplemented, Details: "No handler for type"}
+			resp.Status = Error{StatusCode: http.StatusNotImplemented, Details: "No handler for type"}
 		}
 		LogDebug(req.Path() + " " + hdlr.App.Middleware[i].Path + " " + fmt.Sprintf("%d", i))
 		if middlewareCalled {
-			if resp.HTTPStatus.StatusCode != 200 || middlewareIsEndpoint {
+			if resp.Status.StatusCode != 200 || middlewareIsEndpoint {
 				break
 			}
 		}
@@ -268,7 +200,7 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Listen starts the web server of the application
-func (thisApp *App) Listen(port string) {
+func (thisApp *Application) Listen(port string) {
 	h := mainHandler{
 		App: thisApp}
 
@@ -277,10 +209,10 @@ func (thisApp *App) Listen(port string) {
 	}
 }
 
-func defaultErrorPage(req *HTTPRequest, resp *HTTPResponse, next func(...HTTPStatus)) {
-	resp.ResponseWriter.WriteHeader(resp.HTTPStatus.StatusCode)
-	resp.Write(fmt.Sprintf("<h1>%d %s</h1>", resp.HTTPStatus.StatusCode, http.StatusText(resp.HTTPStatus.StatusCode)))
-	resp.Write(resp.HTTPStatus.Details)
+func defaultErrorPage(err Error, req *Request, resp *Response, next func(...Error)) {
+	resp.writer.WriteHeader(err.StatusCode)
+	resp.Send(fmt.Sprintf("<h1>%d %s</h1>", err.StatusCode, http.StatusText(err.StatusCode)))
+	resp.Send(resp.Status.Details)
 	next()
 }
 

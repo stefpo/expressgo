@@ -5,38 +5,49 @@ import (
 	"os"
 
 	"github.com/stefpo/econv"
-	"github.com/stefpo/expressgo"
+	express "github.com/stefpo/expressgo"
 )
 
 func main() {
 	curdir, _ := os.Getwd()
-	fmt.Println("expressgo basic example")
-	expressgo.DebugMode = true
+	fmt.Println("ExpressGO basic example")
+	express.DebugMode = true
 	fmt.Println(curdir)
 
-	expressgo.Express().
-		SetViewEngine(expressgo.GoViewEngine("views")).
-		Use(expressgo.BasicLogger).
-		Use(expressgo.Session(expressgo.SessionConfig{Timeout: 300, CleanupInterval: 120})).
-		Use(expressgo.URLEncoded).
+	express.Express().
+		SetViewEngine(express.GoViewEngine("views")).
+		Use(express.BasicLogger()).
+		Use(express.Session(express.SessionConfig{Timeout: 300, CleanupInterval: 120})).
+		Use(express.URLEncoded()).
 		Use("/simplePage", simpleHeader).
 		Use("/view", viewtest).
 		Use("/Routed", simpleHeader).
-		Use("/Routed", expressgo.Router(expressgo.OptionsMap{"CaseSensitive": true}).Get("/page1", routedPageGET)).
-		Use("/", expressgo.Router().Get("/page1", rootPageGET).
-			GetPost("/simplePage", simplePage)).
-		Use(expressgo.Static(curdir+"/public", expressgo.OptionsMap{"DefaultPage": "index.html"})).
+		Use("/Routed", express.Router(express.OptionsMap{"CaseSensitive": true}).Get("/page1", routedPageGET)).
+		Use("/", express.Router().Get("/page1", rootPageGET).
+			GetPost("/simplePage", simplePage).
+			Get("/google", redir).
+			Get("/json", json)).
+		Use(express.Static(curdir+"/public", express.OptionsMap{"DefaultPage": "index.html"})).
 		Listen("localhost:8080")
 }
 
-func viewtest(req *expressgo.HTTPRequest, resp *expressgo.HTTPResponse, next func(...expressgo.HTTPStatus)) {
-	resp.Render("testview.tpl", expressgo.ViewData{"fld1": "Value 1"})
+func json(req *express.Request, resp *express.Response, next func(...express.Error)) {
+	resp.Send(23)
+	resp.End(map[string]interface{}{"Value1": "v1", "Field2": "F2"})
+}
+
+func redir(req *express.Request, resp *express.Response, next func(...express.Error)) {
+	resp.Redirect("http://www.google.com")
+}
+
+func viewtest(req *express.Request, resp *express.Response, next func(...express.Error)) {
+	resp.Render("testview.tpl", express.ViewData{"fld1": "Value 1"})
 	next()
 }
 
-func simpleHeader(req *expressgo.HTTPRequest, resp *expressgo.HTTPResponse, next func(...expressgo.HTTPStatus)) {
+func simpleHeader(req *express.Request, resp *express.Response, next func(...express.Error)) {
 	//panic("An error occured")
-	session, _ := req.Vars["x_session"].(*expressgo.HTTPSession)
+	session, _ := req.Vars["Session"].(*express.HTTPSession)
 	cnt := session.Get("hitcount")
 	if cnt == "" {
 		cnt = "0"
@@ -44,32 +55,31 @@ func simpleHeader(req *expressgo.HTTPRequest, resp *expressgo.HTTPResponse, next
 	cnt = econv.ToString(econv.ToInt64(cnt) + 1)
 	session.Set("hitcount", cnt)
 
-	resp.Write("<h1>A Header</h1>")
-	resp.Write("<p>HitCount: " + cnt + " id:" + session.ID + " </p>")
+	resp.Send("<h1>A Header</h1>")
+	resp.Send("<p>HitCount: " + cnt + " id:" + session.ID + " </p>")
 	next()
 }
 
-func simplePage(req *expressgo.HTTPRequest, resp *expressgo.HTTPResponse, next func(...expressgo.HTTPStatus)) {
-	resp.Write("<p>Hello world ! </p>")
+func simplePage(req *express.Request, resp *express.Response, next func(...express.Error)) {
+	resp.Send("<p>Hello world ! </p>")
 	if req.Method() == "POST" {
 		for k, v := range req.Form {
-			resp.Write(fmt.Sprintf("<b>%s</b>: %s<br>", k, v[0]))
-
+			resp.Send(fmt.Sprintf("<b>%s</b>: %s<br>", k, v[0]))
 		}
 	}
-	resp.End("")
+	resp.End()
 
 	next()
 }
 
-func routedPageGET(req *expressgo.HTTPRequest, resp *expressgo.HTTPResponse, next func(...expressgo.HTTPStatus)) {
-	resp.Write("<p>I am a routed page get ! </p>")
-	resp.Write("<p>URL: " + req.Path() + " </p>")
-	resp.End("")
+func routedPageGET(req *express.Request, resp *express.Response, next func(...express.Error)) {
+	resp.Send("<p>I am a routed page get ! </p>")
+	resp.Send("<p>URL: " + req.Path() + " </p>")
+	resp.End()
 }
 
-func rootPageGET(req *expressgo.HTTPRequest, resp *expressgo.HTTPResponse, next func(...expressgo.HTTPStatus)) {
-	resp.Write("<p>I am a root page get ! </p>")
-	resp.Write("<p>URL: " + req.Path() + " </p>")
-	resp.End("")
+func rootPageGET(req *express.Request, resp *express.Response, next func(...express.Error)) {
+	resp.Send("<p>I am a root page get ! </p>")
+	resp.Send("<p>URL: " + req.Path() + " </p>")
+	resp.End()
 }
