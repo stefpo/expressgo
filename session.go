@@ -135,10 +135,10 @@ type SessionConfig struct {
 var config SessionConfig
 
 // Session is the session middleware generator.
-func Session(conf SessionConfig) func(*Request, *Response, func(...Error)) {
+func Session(conf SessionConfig) func(req *Request, resp *Response, next func(...Error)) {
 	config = conf
 	return func(req *Request, resp *Response, next func(...Error)) {
-		req.Vars["Session"] = getHTTPSession(resp.writer, req.Request)
+		req.session = getHTTPSession(resp.writer, req.Request)
 		next()
 	}
 }

@@ -1,0 +1,77 @@
+<html>
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+	<title>JSON-RPC equation</title>
+</head>
+<body>
+	<h1>Equation du second degre</h1>
+	<form id="tf">
+	a <input type=text name="A" id="txta" value="1" gf-type="float">
+	b <input type=text name="B" id="txtb" value="2" gf-type="float">
+	c <input type=text name="C" id="txtc" value="-3" gf-type="float">
+	<input type=button onclick="resolve()" value="Résoudre">
+	</form>
+	<div id="resultHTML">
+	</div>
+</body>
+<script>
+
+$e=function(id) {
+		return document.getElementById(id);
+	}
+
+	function rest(url, params, success) {
+
+		var xhttp = new XMLHttpRequest();
+		//var data = JSON.stringify({"id":reqid, "method": method, "params": params} )
+		var data = JSON.stringify(params )
+
+		xhttp.onreadystatechange = function() {
+			if (this.readyState == 4 && this.status == 200) {
+				resp = JSON.parse (xhttp.responseText);
+				success(resp);
+			}
+			else if (this.readyState == 4 && this.status != 200) {
+				alert(xhttp.responseText)
+				resp = JSON.parse (xhttp.responseText);
+				resterror(resp);
+			}
+		}
+		xhttp.open("POST", url, true);
+		xhttp.setRequestHeader("Content-type", "application/json");
+		xhttp.send(data);
+	}
+
+	function resterror(resp){ 
+		alert("JSON-RPC Error: " + JSON.stringify(resp))
+	}	
+	
+	function resolve() {
+
+		a=parseFloat($e("txta").value );
+		b=parseFloat($e("txtb").value );
+		c=parseFloat($e("txtc").value );
+
+		result=$e("result");
+
+		rest ("eq2", { "a": a, "b": b, "c":c },
+		
+			function(data) { 
+				if (data) {
+					result = data
+					var s
+					s = "Discriminant: " + result.delta
+					if ( result.delta >= 0 ) {
+						s +="<br>Solution1: " + result.sol1;
+						s +="<br>Solution2: " + result.sol2;
+					}
+					resultHTML.innerHTML=s
+				} else {
+					alert(JSON.stringify(data.error));
+				}
+			 } 
+		);
+	}
+	
+</script>
+</html>

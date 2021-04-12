@@ -119,7 +119,9 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	req := Request{
 		Request: r,
 		Vars:    make(map[string]interface{}),
-		App:     hdlr.App}
+		App:     hdlr.App,
+		session: nil,
+		Json:    nil}
 	resp := Response{
 		writer:      w,
 		Vars:        make(map[string]interface{}),
@@ -210,7 +212,7 @@ func (thisApp *Application) Listen(port string) {
 }
 
 func defaultErrorPage(err Error, req *Request, resp *Response, next func(...Error)) {
-	resp.writer.WriteHeader(err.StatusCode)
+	resp.Status.StatusCode = err.StatusCode
 	resp.Send(fmt.Sprintf("<h1>%d %s</h1>", err.StatusCode, http.StatusText(err.StatusCode)))
 	resp.Send(resp.Status.Details)
 	next()

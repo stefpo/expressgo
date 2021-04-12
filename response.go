@@ -28,38 +28,52 @@ func (res *Response) Render(templateFile string, data ViewData) *Response {
 }
 
 // End terminates the response No data will be send after that
-func (res *Response) End(s ...interface{}) *Response {
-	res.HeadersSent = true
+func (res *Response) End(s ...interface{}) {
 	for i := range s {
 		res.Send(s[i])
 	}
 	res.isComplete = true
-	return res
+}
+
+func (res *Response) Json(s interface{}) {
+	if b, e := json.Marshal(s); e == nil {
+		res.sendBytes(b)
+	} else {
+		res.sendBytes([]byte("{}"))
+	}
+
+	res.isComplete = true
 }
 
 // Send sends a string to the HTTP output
 func (res *Response) Send(s interface{}) *Response {
-	if !res.HeadersSent {
-		res.writer.WriteHeader(res.Status.StatusCode)
-	}
 	if !res.isComplete {
-		res.HeadersSent = true
 		switch s.(type) {
 		case string:
-			res.writer.Write([]byte(s.(string)))
+			res.sendBytes([]byte(s.(string)))
 			break
 		case []byte:
-			res.writer.Write(s.([]byte))
+			res.sendBytes(s.([]byte))
 			break
 		default:
 			if b, e := json.MarshalIndent(s, "", "  "); e == nil {
-				res.writer.Write(b)
+				res.sendBytes(b)
 			} else {
-				panic("Unsupported type for Response.Send()")
+				res.Status.StatusCode = http.StatusInternalServerError
+				res.sendBytes([]byte("Response.Send(). Unsupported data type."))
+				panic("Response.Send(). Unsupported data type. " + e.Error())
 			}
 		}
 	}
 	return res
+}
+
+func (res *Response) sendBytes(b []byte) {
+	if !res.HeadersSent {
+		res.writer.WriteHeader(res.Status.StatusCode)
+		res.HeadersSent = true
+	}
+	res.writer.Write(b)
 }
 
 // Set adds a header to the HTTP output
