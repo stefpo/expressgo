@@ -1,0 +1,63 @@
+curdir=`pwd`
+rootdir='load-test'
+
+startdate=`date`
+
+if [ `basename $curdir` != $rootdir ]
+then
+	echo "must be run from the $rootdir directory"
+	exit 1
+fi
+
+cd ..
+
+GS=1000
+GI=0.2
+GR=50
+
+HOST=127.0.0.1
+#HOST=rasp01
+PORT=80
+LOG=/dev/null
+
+SERVER_LOG=log/stresstest.log
+
+echo
+echo > $LOG
+
+let "total=$GS * $GR"
+(
+echo 
+echo HTTP Server benchmark
+echo $GR groups of $GS requests.
+echo $GI seconds interval
+echo
+) > $SERVER_LOG
+cat $SERVER_LOG
+echo > test_errors.log
+
+let "i=$GR"
+while [ $i -gt 0 ]
+do
+	echo "******** GROUP $i ************"
+	echo $GS parallel requests
+	let "c = $GS"
+	while [ $c -gt 0 ]
+	do
+		curl "$HOST:$PORT/?$i-$c" 2>$LOG > /dev/null &
+		let "c=$c-1"
+	done
+	echo Done group $i
+	sleep $GI
+	curl "$HOST:$PORT/?$i/?group$i" 2> $LOG > /dev/null 
+	let "i=$i-1"
+done
+
+sleep 2
+curl "$HOST:$PORT/?$i/?Last-request" 2> $LOG > /dev/null 
+
+echo $total requests sent
+echo 
+
+echo $startdate
+date

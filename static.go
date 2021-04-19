@@ -86,8 +86,8 @@ func Static(root string, p ...OptionsMap) func(*Request, *Response, func(...Erro
 			}
 			buff := make([]byte, bufflen)
 
-			resp.Set("Content-Length", econv.ToString(size))
-			resp.Set("Content-Type", contentType(ext))
+			resp.SetHeader("Content-Length", econv.ToString(size))
+			resp.SetHeader("Content-Type", contentType(ext))
 
 			for {
 				bytesRead, err := f.Read(buff)

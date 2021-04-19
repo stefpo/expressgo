@@ -11,19 +11,17 @@ import (
 type Response struct {
 	App         *Application
 	ContentType string
-	Status      Error
-	HeadersSent bool
-	Vars
-	isComplete bool
-	viewEngine ViewEngine
-	writer     http.ResponseWriter
+	status      Error
+	headersSent bool
+	isComplete  bool
+	viewEngine  ViewEngine
+	writer      http.ResponseWriter
 }
 
 // Render uses the define View engine to render data using the templateFile
 func (res *Response) Render(templateFile string, data ViewData) *Response {
-	if res.viewEngine != nil {
-		res.viewEngine(templateFile, data, res)
-	}
+	viewEngine := res.App.Get("view-engine")
+	viewEngine.(ViewEngine)(templateFile, data, res)
 	return res
 }
 
@@ -59,7 +57,7 @@ func (res *Response) Send(s interface{}) *Response {
 			if b, e := json.MarshalIndent(s, "", "  "); e == nil {
 				res.sendBytes(b)
 			} else {
-				res.Status.StatusCode = http.StatusInternalServerError
+				res.status.StatusCode = http.StatusInternalServerError
 				res.sendBytes([]byte("Response.Send(). Unsupported data type."))
 				panic("Response.Send(). Unsupported data type. " + e.Error())
 			}
@@ -69,32 +67,32 @@ func (res *Response) Send(s interface{}) *Response {
 }
 
 func (res *Response) sendBytes(b []byte) {
-	if !res.HeadersSent {
-		res.writer.WriteHeader(res.Status.StatusCode)
-		res.HeadersSent = true
+	if !res.headersSent {
+		res.writer.WriteHeader(res.status.StatusCode)
+		res.headersSent = true
 	}
 	res.writer.Write(b)
 }
 
 // Set adds a header to the HTTP output
-func (res *Response) Set(name string, value string) {
+func (res *Response) SetHeader(name string, value string) {
 	res.writer.Header().Add(name, value)
 }
 
 // Cookie adds a cookier to the HTTP output
 func (res *Response) Cookie(name string, cookie http.Cookie) *Response {
-	res.Set("Set-cookie", cookie.String())
+	res.SetHeader("Set-cookie", cookie.String())
 	return res
 }
 
 func (res *Response) Location(url string) *Response {
-	res.Set("Location", url)
+	res.SetHeader("Location", url)
 	return res
 }
 
 func (res *Response) Redirect(url string) *Response {
-	res.Status.StatusCode = http.StatusFound
-	res.Set("Refresh", "0; url="+url)
+	res.status.StatusCode = http.StatusFound
+	res.SetHeader("Refresh", "0; url="+url)
 	res.End()
 	return res
 }

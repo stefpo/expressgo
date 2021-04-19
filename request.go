@@ -6,13 +6,26 @@ import "net/http"
 // for middelware function to enrich it
 type Request struct {
 	*http.Request
-	session *HTTPSession
-	Json    map[string]interface{}
-	Params  map[string]string
-	Query   map[string]string
-	Vars
+	session   *HTTPSession
+	Json      map[string]interface{}
+	Params    map[string]string
+	Query     map[string]string
+	vars      map[string]interface{}
 	App       *Application
 	mountPath string
+}
+
+func (req *Request) Set(key string, value interface{}) *Request {
+	req.vars[key] = value
+	return req
+}
+
+func (req *Request) Get(key string) interface{} {
+	if v, ok := req.vars[key]; ok {
+		return v
+	} else {
+		return nil
+	}
 }
 
 func (req *Request) Session() *HTTPSession {
