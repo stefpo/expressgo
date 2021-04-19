@@ -8,9 +8,6 @@ import (
 	"strings"
 )
 
-// Vars is the map structure to store request and response variables
-type Vars map[string]interface{}
-
 type Error struct {
 	StatusCode int
 	Details    string
@@ -47,9 +44,9 @@ type Middleware struct {
 // Application the is main application description object
 type Application struct {
 	Name         string
-	Middleware   []Middleware
-	ViewEngine   ViewEngine
-	Route        map[string]Middleware
+	middleware   []Middleware
+	vars         map[string]interface{}
+	routes       map[string]Middleware
 	XPoweredBy   string
 	ErrorHandler Middleware
 }
@@ -58,16 +55,23 @@ type Application struct {
 func Express() *Application {
 	return &Application{
 		Name:         "Basic application",
-		Middleware:   nil,
-		ViewEngine:   nil,
+		middleware:   nil,
+		vars:         make(map[string]interface{}),
 		XPoweredBy:   "ExpressGo application server",
 		ErrorHandler: Middleware{Path: "", Handler: defaultErrorPage}}
 }
 
-// SetViewEngine sets the view engine for the application
-func (thisApp *Application) SetViewEngine(ve ViewEngine) *Application {
-	thisApp.ViewEngine = ve
+func (thisApp *Application) Set(key string, value interface{}) *Application {
+	thisApp.vars[key] = value
 	return thisApp
+}
+
+func (thisApp *Application) Get(key string) interface{} {
+	if v, ok := thisApp.vars[key]; ok {
+		return v
+	} else {
+		return nil
+	}
 }
 
 // Use adds middleware to the application stack
@@ -76,10 +80,10 @@ func (thisApp *Application) Use(p ...interface{}) *Application {
 		switch p[0].(type) {
 		case (func(*Request, *Response, func(...Error))):
 			mw := p[0].(func(*Request, *Response, func(...Error)))
-			if thisApp.Middleware == nil {
-				thisApp.Middleware = make([]Middleware, 0)
+			if thisApp.middleware == nil {
+				thisApp.middleware = make([]Middleware, 0)
 			}
-			thisApp.Middleware = append(thisApp.Middleware, Middleware{Path: "", Handler: mw})
+			thisApp.middleware = append(thisApp.middleware, Middleware{Path: "", Handler: mw})
 		default:
 			panic("Use: Invalid type for P1 in Use. Expected func(*Request, *Response) Status")
 
@@ -90,16 +94,16 @@ func (thisApp *Application) Use(p ...interface{}) *Application {
 			switch p[1].(type) {
 			case (func(*Request, *Response, func(...Error))):
 				mw := p[1].(func(*Request, *Response, func(...Error)))
-				if thisApp.Middleware == nil {
-					thisApp.Middleware = make([]Middleware, 0)
+				if thisApp.middleware == nil {
+					thisApp.middleware = make([]Middleware, 0)
 				}
-				thisApp.Middleware = append(thisApp.Middleware, Middleware{Path: p[0].(string), Handler: mw})
+				thisApp.middleware = append(thisApp.middleware, Middleware{Path: p[0].(string), Handler: mw})
 			case *RouterT:
 				mw := p[1].(*RouterT)
-				if thisApp.Middleware == nil {
-					thisApp.Middleware = make([]Middleware, 0)
+				if thisApp.middleware == nil {
+					thisApp.middleware = make([]Middleware, 0)
 				}
-				thisApp.Middleware = append(thisApp.Middleware, Middleware{Path: p[0].(string), Handler: mw})
+				thisApp.middleware = append(thisApp.middleware, Middleware{Path: p[0].(string), Handler: mw})
 			default:
 				panic("Use: Invalid type for P2 in Use")
 			}
@@ -118,19 +122,17 @@ type mainHandler struct {
 func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	req := Request{
 		Request: r,
-		Vars:    make(map[string]interface{}),
+		vars:    make(map[string]interface{}),
 		App:     hdlr.App,
 		session: nil,
 		Json:    nil}
 	resp := Response{
 		writer:      w,
-		Vars:        make(map[string]interface{}),
 		ContentType: "text/html; charset=\"utf-8\"",
-		viewEngine:  hdlr.App.ViewEngine,
-		Status:      Error{StatusCode: http.StatusOK, Details: ""},
+		status:      Error{StatusCode: http.StatusOK, Details: ""},
 		App:         hdlr.App}
 
-	resp.Set("X-Powered-By", hdlr.App.XPoweredBy)
+	resp.SetHeader("X-Powered-By", hdlr.App.XPoweredBy)
 
 	defer func() {
 		if e := recover(); e != nil {
@@ -142,18 +144,17 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				em = e.(string)
 			}
 
-			if resp.Status.StatusCode == 200 {
-				resp.Status = Error{StatusCode: http.StatusInternalServerError, Details: em}
+			if resp.status.StatusCode == 200 {
+				resp.status = Error{StatusCode: http.StatusInternalServerError, Details: em}
 			}
-
 		}
 
-		if resp.Status.StatusCode != 200 {
-			hdlr.App.ErrorHandler.Handler.(func(Error, *Request, *Response, func(...Error)))(resp.Status, &req, &resp, func(...Error) {})
+		if resp.status.StatusCode != 200 {
+			hdlr.App.ErrorHandler.Handler.(func(Error, *Request, *Response, func(...Error)))(resp.status, &req, &resp, func(...Error) {})
 		}
 	}()
 
-	for i := 0; i < len(hdlr.App.Middleware); i++ {
+	for i := 0; i < len(hdlr.App.middleware); i++ {
 		middlewareIsEndpoint := true
 		middlewareCalled := false
 
@@ -163,8 +164,8 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			case 0:
 				break
 			case 1:
-				if resp.Status.StatusCode == 200 {
-					resp.Status = p[0]
+				if resp.status.StatusCode == 200 {
+					resp.status = p[0]
 				}
 				break
 			default:
@@ -172,28 +173,28 @@ func (hdlr mainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		switch hdlr.App.Middleware[i].Handler.(type) {
+		switch hdlr.App.middleware[i].Handler.(type) {
 		case func(*Request, *Response, func(...Error)):
-			if hdlr.App.Middleware[i].Path == "" ||
-				hdlr.App.Middleware[i].Path == req.Path() ||
-				strings.HasPrefix(req.Path(), hdlr.App.Middleware[i].Path+"/") {
+			if hdlr.App.middleware[i].Path == "" ||
+				hdlr.App.middleware[i].Path == req.Path() ||
+				strings.HasPrefix(req.Path(), hdlr.App.middleware[i].Path+"/") {
 				middlewareCalled = true
-				hdlr.App.Middleware[i].Handler.(func(*Request, *Response, func(...Error)))(&req, &resp, next)
+				hdlr.App.middleware[i].Handler.(func(*Request, *Response, func(...Error)))(&req, &resp, next)
 			}
 			break
 
 		case *RouterT:
-			req.mountPath = hdlr.App.Middleware[i].Path
-			rt := hdlr.App.Middleware[i].Handler.(*RouterT)
+			req.mountPath = hdlr.App.middleware[i].Path
+			rt := hdlr.App.middleware[i].Handler.(*RouterT)
 			middlewareCalled = true
 			rt.handle(&req, &resp, next)
 			break
 		default:
-			resp.Status = Error{StatusCode: http.StatusNotImplemented, Details: "No handler for type"}
+			resp.status = Error{StatusCode: http.StatusNotImplemented, Details: "No handler for type"}
 		}
-		LogDebug(req.Path() + " " + hdlr.App.Middleware[i].Path + " " + fmt.Sprintf("%d", i))
+		LogDebug(req.Path() + " " + hdlr.App.middleware[i].Path + " " + fmt.Sprintf("%d", i))
 		if middlewareCalled {
-			if resp.Status.StatusCode != 200 || middlewareIsEndpoint {
+			if resp.status.StatusCode != 200 || middlewareIsEndpoint {
 				break
 			}
 		}
@@ -212,9 +213,9 @@ func (thisApp *Application) Listen(port string) {
 }
 
 func defaultErrorPage(err Error, req *Request, resp *Response, next func(...Error)) {
-	resp.Status.StatusCode = err.StatusCode
+	resp.status.StatusCode = err.StatusCode
 	resp.Send(fmt.Sprintf("<h1>%d %s</h1>", err.StatusCode, http.StatusText(err.StatusCode)))
-	resp.Send(resp.Status.Details)
+	resp.Send(resp.status.Details)
 	next()
 }
 
